@@ -139,10 +139,10 @@ class MainWindow(QtWidgets.QMainWindow):
             show_gui_error(str(args), err.decode('utf-8'))
         return result
 
-    def initialize_data(self, idx=0):
+    def initialize_data(self, idx=0, filter_system=False):
         try:
             self.tableView.tableModel.sendSignalLayoutAboutToBeChanged()
-            self.data[:] = self.load_data_launchctl(idx)
+            self.data[:] = self.load_data_launchctl(idx, filter_system)
             self.data_all[:] = self.data
             self.tableView.tableModel.sendSignalLayoutChanged()
         except Exception as e:
@@ -193,11 +193,15 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             show_gui_error("Please select a job first!")
 
-    def on_refresh(self, which):
+    def on_refresh(self, which, filter_system=False):
         domain_index = self.comboBoxDomain.currentIndex()
         self.statusBar().showMessage(f'Refreshing domain {LAUNCHD_DOMAINS[domain_index]} - please wait...')
-        self.initialize_data(domain_index)
+        self.initialize_data(domain_index, filter_system)
         self.statusBar().showMessage(f'Total jobs: {len(self.data)}')
+
+    def on_toggle_filter_system(self, which):
+        state = self.checkBoxFilterSystem.isChecked()
+        self.on_refresh(which, filter_system=state)
 
     def createActions(self):
 
@@ -330,6 +334,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.comboBoxDomain.setCurrentIndex(self.domain_id)
         self.comboBoxDomain.activated.connect(self.on_domain_changed)
         self.toolBar.addWidget(self.comboBoxDomain)
+        self.checkBoxFilterSystem = QtWidgets.QCheckBox("filter out system services")
+        self.checkBoxFilterSystem.stateChanged.connect(self.on_toggle_filter_system)
+        self.toolBar.addWidget(self.checkBoxFilterSystem)
         self.toolBar.addAction(self.actionOpenFile)
         self.toolBar.addAction(self.actionStart)
         self.toolBar.addAction(self.actionStop)
@@ -343,7 +350,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.searchBox.textChanged.connect(self.on_search_changed)
         self.toolBar.addWidget(self.searchBox)
 
-    def load_data_launchctl(self, domain_id=0):
+    def load_data_launchctl(self, domain_id=0, filter_system=False):
         data = []
         uid = os.getuid()
 
@@ -362,6 +369,11 @@ class MainWindow(QtWidgets.QMainWindow):
             label = line.split('\t')[-1]
             if label:
                 details = self.exec(['launchctl', 'print', f'{domain}{user_identifier}/{label}'])
+                if filter_system:
+                    properties = details.split('properties = {\n')[1].split('\t}')[0]
+                    is_system = properties.split("system service = ")[1][0]
+                    if is_system == "1":
+                        continue
                 self.jobs[label] = details
                 paths = re.findall('^\s+path =\s(.*$)', details, re.MULTILINE)
                 path = len(paths) and paths[0] or None
