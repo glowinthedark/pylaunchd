@@ -364,14 +364,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         services = gui_processes.split('services = {\n')[1].split('\t}')[0]
 
+
         for line in services.splitlines():
             label = line.split('\t')[-1]
             if label:
                 details = self.exec(['launchctl', 'print', f'{domain}{user_identifier}/{label}'])
                 if self.checkBoxFilterSystem.isChecked():
-                    properties = details.split('properties = {\n')[1].split('\t}')[0]
-                    is_system = properties.split("system service = ")[1][0]
-                    if is_system == "1":
+                    properties = details.split('properties = {\n')[1].split('}')[0]
+                    if "=" in properties:
+                        is_system = properties.split("system service = ")[1][0]
+                        if is_system == "1":
+                            continue
+                    elif "system service" in properties :
                         continue
                 self.jobs[label] = details
                 paths = re.findall('^\s+path =\s(.*$)', details, re.MULTILINE)
