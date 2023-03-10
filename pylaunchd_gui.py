@@ -29,22 +29,22 @@ SEE ALSO
 https://apple.stackexchange.com/questions/399086/how-to-use-launchctl-print-as-a-replacement-for-launchctl-bslist
 
 
-TODO:
 - search by label/path 
 - add DOMAINS dropdown:
     - system (launchctl print system)
     - user (launchctl print user/`id -u`)
-    - gui (launchctl print gui/`id -u`)
+    - user (launchctl print user/$UID)
+    - gui (launchctl print gui/$UID)
 
 - get service info
 launchctl print gui/501/yanue.v2rayu.v2ray-core
                     ^^ = id -u
 
 - Load (DEPRECATED)
-launchctl load -w ~/Library/LaunchAgents/some.plist
+launchctl load -w ~/Library/LaunchAgents/caddy.plist
 
 - Unload (DEPRECATED)
-launchctl unload -w ~/Library/LaunchAgents/some.plist
+launchctl unload -w ~/Library/LaunchAgents/caddy.plist
 
 - NEW WAY (requires target domain + uid = `id -u`, except for 'system')
 > load
@@ -52,6 +52,8 @@ launchctl bootstrap gui/UID some.plist
 
 > unload
 launchctl bootout gui/UID some.plist
+launchctl bootout user/UID some.plist
+launchctl bootout login/UID some.plist
 
 > list all
 launchctl list 
@@ -90,6 +92,8 @@ LAUNCHD_DOMAINS = ["User", "System", "GUI"]
 DEFAULT_DOMAIN = LAUNCHD_DOMAINS[2]
 
 DEFAULT_EDITOR = 'system'
+
+DEBUG = False
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -132,6 +136,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.on_toggle_toolbar()
 
     def exec(self, args):
+        if DEBUG:
+            print(f'CMD: {" ".join(args)}')
+
         process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = process.communicate()
         result = out.decode('utf-8')
@@ -154,7 +161,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     "Version: %s<br/><br/>"
                                     "From: <a href='mailto:slavery.two.point.zero@gmail.com'>slavery.two.point.zero@gmail.com</a><br/><br/>"
                                     "Subject: For a moment, nothing happened.&nbsp;Then, after a second or so, nothing continued to happen...<br/><br/>"
-                                    "Ponty Mython Podructions<br>Drain Bamage Season 2<br>&copy; 2022" % (
+                                    "Ponty Mython<br>Drain Bamage Season 2<br>&copy; 2022" % (
                                         APPNAME, VERSION))
 
     def run_job_action(self, args):
@@ -163,23 +170,26 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(selected_indexes):
             idx = selected_indexes[0].row()
             label = self.data[idx][0]
-            result = self.exec(args + [label])
+            plist_path = self.data[idx][1]
+            full_args = args + [plist_path]
+            result = self.exec(full_args)
             if result:
-                self.statusBar().showMessage(result)
+                self.statusBar().showMessage(f'{result}\nargs:\n {full_args}')
         else:
             show_gui_error("Please select a job first!")
 
     def on_start_job(self, which):
-        self.run_job_action(['launchctl', 'start'])
+        self.run_job_action(['launchctl', 'load'])
+        # self.run_job_action(['launchctl', 'start'])
 
     def on_stop_job(self, which):
-        self.run_job_action(['launchctl', 'stop'])
+        self.run_job_action(['launchctl', 'unload'])
 
     def on_enable_job(self, which):
-        self.run_job_action(['launchctl', 'enable'])
+        self.run_job_action(['launchctl', 'load', '-w'])
 
     def on_disable_job(self, which):
-        self.run_job_action(['launchctl', 'disable'])
+        self.run_job_action(['launchctl', 'unload', '-w'])
 
     def on_show_in_finder(self, which):
         selected_indexes = self.tableView.selectionModel().selectedRows()
@@ -198,6 +208,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f'Refreshing domain {LAUNCHD_DOMAINS[domain_index]} - please wait...')
         self.initialize_data(domain_index)
         self.statusBar().showMessage(f'Total jobs: {len(self.data)}')
+
+        if self.searchBox.text():
+            self.on_search_changed(self.searchBox.text())
 
     def createActions(self):
 
@@ -248,13 +261,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.actionEnable = QtWidgets.QAction(
             self.style().standardIcon(QtWidgets.QStyle.SP_DialogApplyButton),
-            "Enable", self,
+            "Start +w", self,
             statusTip="Enable job",
             triggered=self.on_enable_job)
 
         self.actionDisable = QtWidgets.QAction(
             self.style().standardIcon(QtWidgets.QStyle.SP_DialogCancelButton),
-            "Disable", self,
+            "Stop -w", self,
             statusTip="Disable job",
             triggered=self.on_disable_job)
 
