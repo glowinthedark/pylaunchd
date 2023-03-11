@@ -370,7 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if label:
                 details = self.exec(['launchctl', 'print', f'{domain}{user_identifier}/{label}'])
                 if self.checkBoxFilterSystem.isChecked():
-                    properties = details.split('properties = {\n')[1].split('}')[0]
+                    properties = details.split('properties = ')[1].split('}')[0]
                     if "=" in properties:
                         is_system = properties.split("system service = ")[1][0]
                         if is_system == "1":
