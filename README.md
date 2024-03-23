@@ -8,7 +8,7 @@ MacOS launchd/launchctl GUI
 
 ![](pylaunchd-screenshot.png)
 
-## Installation and dependencies
+## Dependencies
 
 To run the app the following dependencies are needed (assuming [homebrew](https://brew.sh/) is already installed):
 
