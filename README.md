@@ -12,7 +12,7 @@ MacOS launchd/launchctl GUI
 
 To run the app the following dependencies are needed (assuming [homebrew](https://brew.sh/) is already installed):
 
-- python3 — normally, already present on modern macos versions, or can be installed with `brew install python`
+- python3 — normally, already present on modern macos versions, a user-managed version can be installed with `brew install python`
 - qt5 - install with `brew install qt5`
 - pyqt5 - install with `pip3 install pyqt5`
 
