@@ -24,6 +24,12 @@ The program is contained in a single file and can be launched with:
 python3 pylaunchd_gui.py
 ```
 
+## `launchd`, `launchctl` documentation
+
+- https://developer.apple.com/library/archive/technotes/tn2083
+- `man launchctl`
+- `man launchd`
+- `man launchd.plist`
 
 ### Other launchd GUI apps
 
