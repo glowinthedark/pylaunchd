@@ -5,6 +5,9 @@ MacOS launchd/launchctl GUI
 - edit with user configurable editor (recommended for binary `.plist` files: TextMate or SublimeText with binary plist package installed) 
 - start/stop/enable/disable jobs (WIP) 
 
+![](pylaunchd-screenshot.png)
+
+
 #### Other launchd GUI apps
 
 - [Lingon X](https://www.peterborgapps.com/lingon/)
