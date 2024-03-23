@@ -1,8 +1,8 @@
 # pylaunchd
 MacOS launchd/launchctl GUI
 
-- view macos launchagents and launchdaemons user/system/gui and properties
-- edit with user configurable editor (recommended for binary `.plist` files: TextMate or SublimeText with binary plist package installed) 
+- view macos launchagents and launchdaemons in the `user/system/gui` domains and display detailed properties for each service
+- edit with user configurable editor (recommended for binary `.plist` files: [TextMate](https://macromates.com/) or [SublimeText](https://www.sublimetext.com/) with [binary plist package](https://packagecontrol.io/packages/BinaryPlist) installed) 
 - start/stop/enable/disable jobs (WIP) 
 
 ![](pylaunchd-screenshot.png)
