@@ -376,11 +376,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if label:
                 details = self.exec(['launchctl', 'print', f'{domain}{user_identifier}/{label}'])
                 self.jobs[label] = details
-                paths = re.findall('^\s+path =\s(.*$)', details, re.MULTILINE)
+                paths = re.findall(r'^\s+path =\s(.*$)', details, re.MULTILINE)
                 path = len(paths) and paths[0] or None
 
                 if path and path.startswith('/'):
-                    states = re.findall('^\s+state =\s(.*$)', details, re.MULTILINE)
+                    states = re.findall(r'^\s+state =\s(.*$)', details, re.MULTILINE)
                     state = len(states) and states[0] or ''
                     data.append([label, path, state])
 
