@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 
 # import launchd
-from PyQt5 import QtCore
-from PyQt5 import QtGui
-from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QLineEdit
+from PyQt6 import QtCore
+from PyQt6 import QtGui
+from PyQt6 import QtWidgets
+from PyQt6.QtWidgets import QLineEdit
 
 """
 
@@ -86,7 +86,7 @@ Daemons and Services Programming Guide
 """
 
 APPNAME = 'pyLaunchd'
-VERSION = '22.2221 (pyqt5)'
+VERSION = '22.2221 (pyqt6)'
 
 LAUNCHD_DOMAINS = ["User", "System", "GUI"]
 DEFAULT_DOMAIN = LAUNCHD_DOMAINS[2]
@@ -104,7 +104,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.is_toolbar_hidden = False
         self.read_settings()
 
-        self.iconSwitch = self.style().standardIcon(QtWidgets.QStyle.SP_MediaSkipForward)
+        self.iconSwitch = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaSkipForward)
         self.setWindowIcon(self.iconSwitch)
 
         self.setGeometry(100, 150, 500, 660)
@@ -214,71 +214,71 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def createActions(self):
 
-        self.actionOpenFile = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_ArrowRight),
+        self.actionOpenFile = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowRight),
             "&Open...", self,
-            shortcut=QtGui.QKeySequence.Forward,
+            shortcut=QtGui.QKeySequence.StandardKey.Forward,
             statusTip="Open associated plist file",
             triggered=self.on_open_linked_file)
 
-        self.actionToggleToolbar = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogCloseButton),
+        self.actionToggleToolbar = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton),
             "Hide toolbar...", self,
-            shortcut=QtGui.QKeySequence.Bold,
+            shortcut=QtGui.QKeySequence.StandardKey.Bold,
             statusTip="Show or hide toolbar",
             triggered=self.on_toggle_toolbar)
 
-        self.actionSetEditor = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView),
+        self.actionSetEditor = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileDialogDetailedView),
             "Set editor...", self,
             statusTip="Set editor app for viewing plist files",
             triggered=self.on_editor_config,
             checkable=True)
 
-        self.actionQuit = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_BrowserStop),
+        self.actionQuit = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_BrowserStop),
             "&Quit",
             self,
             statusTip="Quit the application", triggered=self.close)
 
-        self.actionAbout = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogInfoView),
+        self.actionAbout = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileDialogInfoView),
             "About", self,
             statusTip="Show the About box",
             triggered=self.on_about)
 
-        self.actionStart = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay),
+        self.actionStart = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPlay),
             "Start", self,
             statusTip="Start job",
             triggered=self.on_start_job)
 
-        self.actionStop = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaStop),
+        self.actionStop = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaStop),
             "Stop", self,
             statusTip="Stop job",
             triggered=self.on_stop_job)
 
-        self.actionEnable = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogApplyButton),
+        self.actionEnable = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton),
             "Start +w", self,
             statusTip="Enable job",
             triggered=self.on_enable_job)
 
-        self.actionDisable = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogCancelButton),
+        self.actionDisable = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCancelButton),
             "Stop -w", self,
             statusTip="Disable job",
             triggered=self.on_disable_job)
 
-        self.actionShowInFinder = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon),
+        self.actionShowInFinder = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DirIcon),
             "Show in Finder", self,
             statusTip="Show plist file in finder",
             triggered=self.on_show_in_finder)
 
-        self.actionRefresh = QtWidgets.QAction(
-            self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload),
+        self.actionRefresh = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_BrowserReload),
             "Refresh", self,
             statusTip="Refresh",
             triggered=self.on_refresh)
@@ -337,7 +337,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def createToolBars(self):
         self.toolBar = self.addToolBar("&File")
-        self.toolBar.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+        self.toolBar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.comboBoxDomain = QtWidgets.QComboBox()
         self.comboBoxDomain.insertItems(1, LAUNCHD_DOMAINS)
         self.comboBoxDomain.setCurrentIndex(self.domain_id)
@@ -389,11 +389,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def createDockWindows(self):
         self.topDock = QtWidgets.QDockWidget(self)
-        self.topDock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable)
-        self.topDock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea
-                                     | QtCore.Qt.RightDockWidgetArea
-                                     | QtCore.Qt.TopDockWidgetArea
-                                     | QtCore.Qt.BottomDockWidgetArea)
+        self.topDock.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        self.topDock.setAllowedAreas(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea
+                                     | QtCore.Qt.DockWidgetArea.RightDockWidgetArea
+                                     | QtCore.Qt.DockWidgetArea.TopDockWidgetArea
+                                     | QtCore.Qt.DockWidgetArea.BottomDockWidgetArea)
 
         self.tableView = CustomTableView(self.data)
         self.tableView.addAction(self.actionOpenFile)
@@ -404,24 +404,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tableView.addAction(self.actionShowInFinder)
         self.tableView.setAppWindowHandle(self)
 
-        self.tableView.setSelectionMode(QtWidgets.QTableView.SingleSelection)
+        self.tableView.setSelectionMode(QtWidgets.QTableView.SelectionMode.SingleSelection)
         self.topDock.setWindowTitle("registered services")
 
         self.topDock.setWidget(self.tableView)
         self.tableView.selectionModel().selectionChanged.connect(self.onListItemSelect)
         self.tableView.doubleClicked.connect(self.onListItemDoubleClick)
 
-        self.addDockWidget(QtCore.Qt.TopDockWidgetArea, self.topDock)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.TopDockWidgetArea, self.topDock)
 
         self.bottomDock = QtWidgets.QDockWidget("", self)
-        self.bottomDock.setFeatures(QtWidgets.QDockWidget.DockWidgetVerticalTitleBar)
+        self.bottomDock.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetVerticalTitleBar)
         self.bottomDock.setTitleBarWidget(QtWidgets.QWidget(self.bottomDock))
         # self.bottomDock.setFeatures(QtWidgets.QDockWidget.DockWidgetClosable)
-        self.bottomDock.setAllowedAreas(QtCore.Qt.BottomDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+        self.bottomDock.setAllowedAreas(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea | QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
 
         ## hide initially
         self.bottomDock.hide()
-        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.bottomDock)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.bottomDock)
 
     # def restore_column_sort_mode(self):
     #     if len(tableview_data):
@@ -488,7 +488,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.exec(('open', '-a', self.editor, filepath))
 
     def read_settings(self):
-        self.settings = QtCore.QSettings(QtCore.QSettings.IniFormat, QtCore.QSettings.UserScope, "xh", APPNAME)
+        self.settings = QtCore.QSettings(QtCore.QSettings.Format.IniFormat, QtCore.QSettings.Scope.UserScope, "xh", APPNAME)
         pos = self.settings.value("pos", QtCore.QPoint(200, 200))
         size = self.settings.value("size", QtCore.QSize(600, 400))
         self.resize(size)
@@ -505,7 +505,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "editor", type=str) or DEFAULT_EDITOR
 
     def write_settings(self):
-        settings = QtCore.QSettings(QtCore.QSettings.IniFormat, QtCore.QSettings.UserScope, "xh", APPNAME)
+        settings = QtCore.QSettings(QtCore.QSettings.Format.IniFormat, QtCore.QSettings.Scope.UserScope, "xh", APPNAME)
         settings.setValue("pos", self.pos())
         settings.setValue("size", self.size())
         # settings.setValue("last_saved_sort_column", self.last_saved_sort_column)
@@ -537,7 +537,7 @@ class CustomTableView(QtWidgets.QTableView):
         QtWidgets.QTableView.__init__(self, *args)
         self.tableModel = CustomTableModel(table_data, self)
         self.setModel(self.tableModel)
-        self.setContextMenuPolicy(QtCore.Qt.ActionsContextMenu)
+        self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.ActionsContextMenu)
 
     def setAppWindowHandle(self, mainWindowHandle):
         self.mainWindow = mainWindowHandle
@@ -546,20 +546,20 @@ class CustomTableView(QtWidgets.QTableView):
         self.setShowGrid(False)
         self.horizontalHeader().setStretchLastSection(True)
         self.verticalHeader().setVisible(False)
-        self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.setTabKeyNavigation(False)
 
         # disable row editing
-        self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
 
         # disable bold column headers
         horizontalHeader = self.horizontalHeader()
         horizontalHeader.setHighlightSections(False)
 
-        self.style().pixelMetric(QtWidgets.QStyle.PM_ScrollBarExtent)
+        self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent)
         self.setWordWrap(True)
         self.setSortingEnabled(True)
-        self.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustToContents)
+        self.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.resizeColumnsToContents()
 
 
@@ -583,11 +583,11 @@ class CustomTableModel(QtCore.QAbstractTableModel):
         # index is a QModelIndex type
         if not qModelIndex.isValid():
             return QtCore.QVariant()
-        elif role != QtCore.Qt.DisplayRole:
+        elif role != QtCore.Qt.ItemDataRole.DisplayRole:
             return QtCore.QVariant()
-        elif role == QtCore.Qt.TextAlignmentRole:
-            return QtCore.Qt.AlignLeft
-        elif qModelIndex.isValid() and role == QtCore.Qt.DecorationRole:
+        elif role == QtCore.Qt.ItemDataRole.TextAlignmentRole:
+            return QtCore.Qt.AlignmentFlag.AlignLeft
+        elif qModelIndex.isValid() and role == QtCore.Qt.ItemDataRole.DecorationRole:
             row = qModelIndex.row()
             column = qModelIndex.column()
             value = None
@@ -595,7 +595,7 @@ class CustomTableModel(QtCore.QAbstractTableModel):
                 value = self.arraydata[row][column]
             except IndexError:
                 return
-        elif qModelIndex.isValid() and role == QtCore.Qt.DisplayRole:
+        elif qModelIndex.isValid() and role == QtCore.Qt.ItemDataRole.DisplayRole:
             row = qModelIndex.row()
             column = qModelIndex.column()
             try:
@@ -606,8 +606,8 @@ class CustomTableModel(QtCore.QAbstractTableModel):
 
         return QtCore.QVariant(self.arraydata[qModelIndex.row()][qModelIndex.column()])
 
-    def setData(self, index, value, role=QtCore.Qt.EditRole):
-        if role == QtCore.Qt.EditRole:
+    def setData(self, index, value, role=QtCore.Qt.ItemDataRole.EditRole):
+        if role == QtCore.Qt.ItemDataRole.EditRole:
             self.arraydata[index.row()] = value
             self.dataChanged.emit(index, index)
             return True
@@ -621,8 +621,8 @@ class CustomTableModel(QtCore.QAbstractTableModel):
         self.endResetModel()
         self.layoutChanged.emit()
 
-    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if role == QtCore.Qt.DisplayRole and orientation == QtCore.Qt.Horizontal:
+    def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
+        if role == QtCore.Qt.ItemDataRole.DisplayRole and orientation == QtCore.Qt.Orientation.Horizontal:
             return self.header_labels[section]
         return QtCore.QAbstractTableModel.headerData(self, section, orientation, role)
 
@@ -639,14 +639,14 @@ class CustomTableModel(QtCore.QAbstractTableModel):
         """
         self.sendSignalLayoutAboutToBeChanged()
 
-        sorted_data = sorted(self.arraydata, key=operator.itemgetter(ncol), reverse=order)
+        sorted_data = sorted(self.arraydata, key=operator.itemgetter(ncol), reverse=(order == QtCore.Qt.SortOrder.DescendingOrder) )
         self.arraydata[:] = sorted_data[:]
         self.sendSignalLayoutChanged()
         self.last_saved_sort_column = ncol
         self.last_saved_sort_order = order
 
     def flags(self, index):
-        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsSelectable
+        return QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsSelectable
 
 
 def show_gui_error(msg, error_text=''):
@@ -658,7 +658,7 @@ def main():
     mainWin = MainWindow()
     mainWin.show()
     mainWin.raise_()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':
