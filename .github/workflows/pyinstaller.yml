@@ -85,9 +85,8 @@ jobs:
         --collect-submodules PyQt6 \
         --argv-emulation \
         --hidden-import __future__ \
-        --name ${{ env.APPNAME }} \ \
+        --name ${{ env.APPNAME }} \
         --distpath ${{ env.DIST_DIR }} \
-        --workpath build.pyinstaller \
         pylaunchd_gui.py
         
     - name: Upload Artifacts 
