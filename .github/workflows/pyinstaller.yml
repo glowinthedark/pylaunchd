@@ -80,7 +80,7 @@ jobs:
         --windowed \
         --noconfirm \
         --exclude-module tkinter \
-        --osx-bundle-identifier com.github.pyglossary \
+        --osx-bundle-identifier pylaunchd \
         --debug bootloader \
         --collect-submodules PyQt6 \
         --argv-emulation \
