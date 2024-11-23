@@ -1,0 +1,84 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: PyInstaller build
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [ "main" ]
+  # pull_request:
+  #   branches: [ "main" ]
+
+permissions:
+  contents: write
+env:
+  UV_SYSTEM_PYTHON: 1
+  # UV_NO_PROGRESS: 1
+  PYINSTALLER_STRICT_UNPACK_MODE: 0
+  PYINSTALLER_STRICT_COLLECT_MODE: 0
+  PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR: 0
+  PYINSTALLER_VERIFY_BUNDLE_SIGNATURE: 0
+  PYTHONWARNDEFAULTENCODING: false
+  APPNAME: PyLaunchdGui
+  # DIST_DIR: dist.pyinstaller
+  HOMEBREW_NO_INSTALL_CLEANUP: true
+  HOMEBREW_NO_ENV_HINTS: true
+  HOMEBREW_CLEANUP_MAX_AGE_DAYS: 999
+  HOMEBREW_NO_ANALYTICS: true
+  HOMEBREW_NO_AUTO_UPDATE: true
+  
+jobs:
+  build_macos:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # create-dmg chokes when running parallel workers 
+      # max-parallel: 1 
+      # see https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow
+      matrix:
+        # python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.12']
+        os: ['macos-13', 'macos-14']
+      fail-fast: false
+      
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install uv
+      # https://docs.astral.sh/uv/guides/integration/github/#caching
+      uses: astral-sh/setup-uv@v3    
+
+    - name: Install  dependencies
+      run: |
+        uv pip install pyinstaller PyQt6
+
+    - name: Pyinstaller Build
+      run: |
+        pyinstaller --noupx \
+        --windowed \
+        --noconfirm \
+        --exclude-module tkinter \
+        --osx-bundle-identifier com.github.pyglossary \
+        --debug bootloader \
+        --collect-submodules PyQt6 \
+        --argv-emulation \
+        --hidden-import __future__ \
+        --name $APPNAME \
+        --distpath "$DIST_DIR" \
+        --workpath build.pyinstaller \
+        pylaunchd_gui.py
+        
+    - name: Upload Artifacts 
+      uses: actions/upload-artifact@v4
+      with:
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/accessing-contextual-information-about-workflow-runs#github-context
+        overwrite: true
+        name: ${{ github.event.repository.name }}-${{ matrix.os }}-${{ matrix.python-version }}-${{ github.sha }}
+        path: |
+          ${{ env.DIST_DIR }}
