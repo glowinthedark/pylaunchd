@@ -21,7 +21,7 @@ env:
   PYINSTALLER_VERIFY_BUNDLE_SIGNATURE: 0
   PYTHONWARNDEFAULTENCODING: false
   APPNAME: PyLaunchdGui
-  # DIST_DIR: dist.pyinstaller
+  DIST_DIR: dist.pyinstaller
   HOMEBREW_NO_INSTALL_CLEANUP: true
   HOMEBREW_NO_ENV_HINTS: true
   HOMEBREW_CLEANUP_MAX_AGE_DAYS: 999
@@ -40,11 +40,27 @@ jobs:
         # python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
         python-version: ['3.12']
         os: ['macos-13', 'macos-14']
+        qt_ver: [ 6.7.2 ]
+
       fail-fast: false
       
     steps:
     - uses: actions/checkout@v4
     
+    - name: Update brew
+      run: |
+        brew update
+        
+    - name: Install brew dependencies
+      run: |
+        brew install create-dmg qt
+        
+    # - uses: jurplel/install-qt-action@v4
+    #   with:
+    #     version: ${{ matrix.qt_ver }}
+    #     arch: clang_64
+    #     modules: qtwebengine qtwebchannel qtpositioning qt5compat qtmultimedia qtimageformats qtspeech  
+        
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -69,8 +85,8 @@ jobs:
         --collect-submodules PyQt6 \
         --argv-emulation \
         --hidden-import __future__ \
-        --name $APPNAME \
-        --distpath "$DIST_DIR" \
+        --name ${{ env.APPNAME }} \ \
+        --distpath ${{ env.DIST_DIR }} \
         --workpath build.pyinstaller \
         pylaunchd_gui.py
         
