@@ -1,0 +1,161 @@
+name: Nuitka macOS app bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (creates the tag if missing, otherwise updates assets under the existing tag)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  APPNAME: pyLaunchd
+  PYTHON_VERSION: "3.14"
+  HOMEBREW_NO_INSTALL_CLEANUP: "true"
+  HOMEBREW_NO_ENV_HINTS: "true"
+  HOMEBREW_NO_ANALYTICS: "true"
+  HOMEBREW_NO_AUTO_UPDATE: "true"
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Latest GitHub-provided macOS runner images; both ship Python 3.14.5,
+        # Homebrew, and the Xcode Command Line Tools (clang) ootb.
+        # See:
+        #   https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md
+        #   https://github.com/actions/runner-images/blob/main/images/macos/macos-14-Readme.md
+        os: [macos-15, macos-14]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Sanity-check runner preinstalls
+        run: |
+          echo "Python: $(python3 --version)"
+          echo "pip3:   $(pip3 --version)"
+          echo "clang:  $(clang --version)"
+          echo "brew:   $(brew --version)"
+          echo "hdiutil: $(command -v hdiutil)"
+          echo "gh:     $(command -v gh)"
+
+      - name: Install Python dependencies
+        # Uses the runner's system Python 3.14 as-is (no setup-python action).
+        # Nuitka compiles against the invoking interpreter, so the bundle
+        # embeds the same CPython that nuitka was installed into.
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install \
+            "Nuitka" \
+            "PySide6"
+
+      - name: Build .app bundle with Nuitka
+        # macOS app-bundle mode (-macos-create-app-bundle) produces a
+        # standalone .app with all dependencies frozen in. The PySide6
+        # plugin (--enable-plugin=pyside6) is what makes Nuitka correctly
+        # collect Qt's plugins/resources/translations instead of relying
+        # on the (broken under freeze) Qt plugin search paths.
+        run: |
+          python3 -m nuitka \
+            --standalone \
+            --macos-create-app-bundle \
+            --macos-app-name="${{ env.APPNAME }}" \
+            --macos-app-icon=icon.icns \
+            --enable-plugin=pyside6 \
+            --no-progress \
+            --assume-yes-for-downloads \
+            --output-dir=build \
+            pylaunchd_gui.py
+
+      - name: Verify the bundle
+        run: |
+          ls -la build/
+          APP_BUNDLE="build/${{ env.APPNAME }}.app"
+          test -d "${APP_BUNDLE}" || APP_BUNDLE="build/pylaunchd_gui.app"
+          echo "APP_BUNDLE=${APP_BUNDLE}" >> "$GITHUB_ENV"
+          ls -la "${APP_BUNDLE}/Contents"
+          ls -la "${APP_BUNDLE}/Contents/MacOS"
+
+      - name: Pack .app into DMG (hdiutil)
+        # UDZO = compressed, read-only. -ov allows overwriting a stale DMG
+        # if the step is re-run. The DMG is named per-OS so the two matrix
+        # builds don't collide when uploaded to the same release.
+        env:
+          RUNNER_SUFFIX: ${{ matrix.os }}
+        run: |
+          DMG_NAME="${{ env.APPNAME }}-${{ inputs.tag }}-${RUNNER_SUFFIX}.dmg"
+          rm -f "${DMG_NAME}"
+          hdiutil create \
+            -volname "${{ env.APPNAME }}" \
+            -srcfolder "${APP_BUNDLE}" \
+            -ov \
+            -format UDZO \
+            "${DMG_NAME}"
+          echo "DMG_NAME=${DMG_NAME}" >> "$GITHUB_ENV"
+          ls -la "${DMG_NAME}"
+
+      - name: Upload DMG as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DMG_NAME }}
+          path: ${{ env.DMG_NAME }}
+          overwrite: true
+          retention-days: 14
+
+  release:
+    name: Release DMGs (${{ inputs.tag }})
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all DMG artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Inspect artifacts
+        run: |
+          ls -la release-assets/
+          test -n "$(ls release-assets/*.dmg)" || { echo "no DMG found"; exit 1; }
+
+      - name: Create tag if missing, then upsert release assets
+        # gh release create will create the tag (pointing at the workflow's
+        # commit SHA) if it doesn't already exist, and upload the assets.
+        # If the tag/release already exists, the create call fails, so we
+        # fall back to `gh release upload --clobber` to replace the assets.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          echo "Target tag: ${TAG}"
+
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release for tag '${TAG}' already exists - updating assets."
+            gh release upload "${TAG}" release-assets/*.dmg \
+              --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            echo "Release for tag '${TAG}' does not exist - creating tag + release."
+            gh release create "${TAG}" release-assets/*.dmg \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --notes "Built with Nuitka from commit ${GITHUB_SHA}.
+
+          Assets:
+          - pyLaunchd-${TAG}-macos-14.dmg (macOS 14 / Sonoma)
+          - pyLaunchd-${TAG}-macos-15.dmg (macOS 15 / Sequoia)"
+          fi
+
+      - name: Show final release state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" --repo "${GITHUB_REPOSITORY}"

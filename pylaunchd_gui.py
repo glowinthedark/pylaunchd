@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 glowinthedark
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -*- coding: ascii -*-
 
 import operator
@@ -110,7 +124,7 @@ DEBUG = False
 # a domain has hundreds/thousands of jobs, without overwhelming the OS.
 MAX_WORKERS = 16
 
-# Precompiled once instead of per-job (load_data_launchctl can call these
+# Precompiled once instead of per-job (collect_jobs can call these
 # thousands of times for a busy domain).
 RE_SERVICES_BLOCK = re.compile(r"services = \{\n(.*?)\n\t\}", re.DOTALL)
 RE_PATH = re.compile(r"^\s+path =\s(.*)$", re.MULTILINE)
@@ -146,6 +160,110 @@ def run_launchctl(args, privileged=False):
     return proc.stdout, proc.stderr
 
 
+def collect_jobs(target):
+    """Bulk-load every job in a launchd domain.
+
+    Returns ``(data, jobs)`` where ``data`` is a list of
+    ``[label, path, state]`` rows (the table's canonical dataset) and
+    ``jobs`` maps ``label -> raw "launchctl print <domain>/<label>"`` text
+    (used to populate the details pane).
+
+    This is a pure function with no Qt/GUI interaction, so it is safe to run
+    on a background QThread. The per-job "launchctl print" calls are the
+    expensive part (one fork+exec per service), but they are independent and
+    I/O-bound, so running them concurrently turns an O(n) sequence of
+    process spawns into a few batches of MAX_WORKERS. executor.map keeps
+    results in label order even though completion order may vary.
+
+    dict.fromkeys preserves order while de-duplicating labels (cheap
+    insurance against launchctl listing the same label twice). Only jobs
+    with an absolute "path =" are kept, matching the previous behaviour.
+    """
+    listing, _err = run_launchctl(["launchctl", "print", target])
+    match = RE_SERVICES_BLOCK.search(listing)
+    if not match:
+        return [], {}
+
+    labels = list(
+        dict.fromkeys(
+            line.split("\t")[-1].strip() for line in match.group(1).splitlines()
+        )
+    )
+    labels = [label for label in labels if label]
+
+    jobs = {}
+    data = []
+    commands = [["launchctl", "print", f"{target}/{label}"] for label in labels]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for label, (details, _err) in zip(labels, pool.map(run_launchctl, commands)):
+            jobs[label] = details
+            path_match = RE_PATH.search(details)
+            path = path_match.group(1) if path_match else None
+            if path and path.startswith("/"):
+                state_match = RE_STATE.search(details)
+                data.append([label, path, state_match.group(1) if state_match else ""])
+
+    return data, jobs
+
+
+class JobLoaderThread(QtCore.QThread):
+    """Loads a domain's jobs off the GUI thread.
+
+    Emits ``finished_jobs(data, jobs)`` on completion or ``error(msg)``.
+    Keeping the heavy launchctl work off the GUI thread is what keeps the
+    UI responsive (and the busy progress bar spinning) while a large domain
+    is being parsed. Results are handed back via Qt signals, so the GUI
+    thread never shares mutable state with the worker (no locking needed).
+    """
+
+    finished_jobs = QtCore.Signal(list, dict)
+    error = QtCore.Signal(str)
+
+    def __init__(self, target, parent=None):
+        super().__init__(parent)
+        self._target = target
+
+    def run(self):
+        try:
+            data, jobs = collect_jobs(self._target)
+            self.finished_jobs.emit(data, jobs)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class JobFilterProxyModel(QtCore.QSortFilterProxyModel):
+    """Case-insensitive filter that matches the query against *either* the
+    Label column or the Path column.
+
+    Replacing the old hand-rolled list rebuild with a proxy model means
+    filtering and sorting never mutate the underlying dataset (fixing the
+    old sort-vs-search invariant bug), the view maps selection through
+    mapToSource/mapFromSource automatically, and the search box collapses
+    to a single setFilterFixedString call.
+    """
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        regex = self.filterRegularExpression()
+        if not regex.pattern():
+            return True
+        model = self.sourceModel()
+        label = (
+            model.data(
+                model.index(source_row, 0, source_parent),
+                QtCore.Qt.ItemDataRole.DisplayRole,
+            )
+            or ""
+        )
+        path = (
+            model.data(
+                model.index(source_row, 1, source_parent),
+                QtCore.Qt.ItemDataRole.DisplayRole,
+            )
+            or ""
+        )
+        return regex.match(label).hasMatch() or regex.match(path).hasMatch()
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -160,20 +278,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setGeometry(100, 150, 500, 660)
 
         self.jobs = {}
+        self._loader = None
+        self._progress = None
         self.createActions()
         self.createMenus()
         self.createToolBars()
-        self.data = self.load_data_launchctl(self.domain_id)
-        self.data_all = []
-        self._set_full_dataset(self.data)
-        self.statusBar().showMessage(f"Total jobs: {len(self.data)}")
 
         self.textEdit = QtWidgets.QTextEdit()
         self.textEdit.setReadOnly(True)
 
         self.setCentralWidget(self.textEdit)
 
-        # self.createStatusBar()
+        # createDockWindows builds the table view together with its source
+        # model and the filter/sort proxy model that sits between the view
+        # and the source, so they exist before the first (async) load.
         self.createDockWindows()
         self.setWindowTitle(APPNAME)
 
@@ -184,35 +302,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actionToggleToolbar.setChecked(True)
             self.on_toggle_toolbar()
 
+        self.statusBar().showMessage(
+            f"Loading domain [{LAUNCHD_DOMAINS[self.domain_id]}] - please wait..."
+        )
+        self._start_load(self.domain_id)
+
     def exec(self, args):
         if DEBUG:
             print(f"CMD: {' '.join(args)}")
 
         proc = subprocess.run(args, capture_output=True, text=True)
         if proc.returncode != 0:
-            show_gui_error(str(args), "{proc.returncode}: {proc.stderr}")
+            show_gui_error(str(args), f"{proc.returncode}: {proc.stderr}")
         return proc.stdout
-
-    def _set_full_dataset(self, data):
-        """Replace the unfiltered dataset and rebuild the lowercase search cache.
-
-        Lowercasing every label/path once here (instead of on every keystroke
-        in on_search_changed) is what keeps the search box responsive even
-        with thousands of jobs loaded.
-        """
-        self.data_all[:] = data
-        self._search_keys = [
-            (label.lower(), path.lower()) for label, path, _state in data
-        ]
-
-    def initialize_data(self, idx=0):
-        try:
-            self.tableView.tableModel.sendSignalLayoutAboutToBeChanged()
-            self.data[:] = self.load_data_launchctl(idx)
-            self._set_full_dataset(self.data)
-            self.tableView.tableModel.sendSignalLayoutChanged()
-        except Exception as e:
-            print("Error initializing data", e)
 
     def on_about(self):
         QtWidgets.QMessageBox.about(
@@ -222,17 +324,23 @@ class MainWindow(QtWidgets.QMainWindow):
             "Version: %s<br/><br/>"
             "From: <a href='mailto:slavery.two.point.zero@gmail.com'>slavery.two.point.zero@gmail.com</a><br/><br/>"
             "Subject: For a moment, nothing happened.&nbsp;Then, after a second or so, nothing continued to happen...<br/><br/>"
-            "Ponty Mython<br>Drain Bamage Season 2<br>&copy; 2022" % (APPNAME, VERSION),
+            "Licensed under the Apache License, Version 2.0<br><br>glowinthedark &copy; 2026"
+            % (APPNAME, VERSION),
         )
 
     def selected_job(self):
         """Return (label, plist_path) for the selected row, or None (and
-        show the standard error) if nothing is selected."""
+        show the standard error) if nothing is selected.
+
+        The view's model is the proxy, so the selection's indexes are proxy
+        indexes and must be mapped back to the source model before indexing
+        into the canonical dataset."""
         selected_indexes = self.tableView.selectionModel().selectedRows()
         if not selected_indexes:
             show_gui_error("Please select a job first!")
             return None
-        row = self.data[selected_indexes[0].row()]
+        source_index = self.tableView.proxyModel.mapToSource(selected_indexes[0])
+        row = self.tableView.tableModel.arraydata[source_index.row()]
         return row[0], row[1]
 
     def domain_target(self, domain_id=None):
@@ -267,20 +375,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def refresh_job_state(self, label):
         """Re-query just this one job's state and update its row in place,
-        instead of reloading the whole domain. self.data's rows are the
-        same list objects as self.data_all's (filtering only changes which
-        rows are *visible*, never copies them), so mutating the row found
-        here is automatically reflected in data_all too."""
+        instead of reloading the whole domain. The source model's
+        arraydata is the single canonical dataset (the proxy only changes
+        which rows are *visible*, never copies them), so updating the row
+        found here is reflected in the filtered view too. dataChanged is
+        emitted on the source model and propagates through the proxy."""
         details, _err = run_launchctl(
             ["launchctl", "print", f"{self.domain_target()}/{label}"]
         )
         self.jobs[label] = details
         state_match = RE_STATE.search(details)
         new_state = state_match.group(1) if state_match else ""
-        for row_index, row in enumerate(self.data):
+        model = self.tableView.tableModel
+        for row_index, row in enumerate(model.arraydata):
             if row[0] == label:
                 row[2] = new_state
-                model = self.tableView.tableModel
                 cell = model.index(row_index, 2)
                 model.dataChanged.emit(cell, cell)
                 break
@@ -395,11 +504,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(
             f"Refreshing domain {LAUNCHD_DOMAINS[domain_index]} - please wait..."
         )
-        self.initialize_data(domain_index)
-        self.statusBar().showMessage(f"Total jobs: {len(self.data)}")
-
-        if self.searchBox.text():
-            self.on_search_changed(self.searchBox.text())
+        self._start_load(domain_index)
 
     def createActions(self):
         self.actionOpenFile = QtGui.QAction(
@@ -519,41 +624,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f'Editor="{self.editor}"')
 
     def on_domain_changed(self, selected_index):
-        self.domain_id = selected_index
         self.statusBar().showMessage(
             f"Loading jobs for domain [{LAUNCHD_DOMAINS[selected_index]}] - please wait..."
         )
-        self.initialize_data(selected_index)
-        self.statusBar().showMessage(f"Total jobs: {len(self.data)}")
-
-        if self.searchBox.text():
-            self.on_search_changed(self.searchBox.text())
+        self._start_load(selected_index)
 
     def on_search_changed(self, text):
-        query = text.strip().lower()
-        if query:
+        # The proxy model owns all filtering; just hand it the query.
+        # Case-insensitivity is configured once in CustomTableView.
+        self.tableView.proxyModel.setFilterFixedString(text)
+        if text.strip():
             self.statusBar().showMessage(f"Filter by: {text}")
-
-        try:
-            self.tableView.tableModel.sendSignalLayoutAboutToBeChanged()
-            if query:
-                # _search_keys holds precomputed (label.lower(), path.lower())
-                # tuples in lockstep with data_all, so filtering never has to
-                # re-lowercase the same strings on every keystroke.
-                filtered_data = [
-                    row
-                    for row, (label_lc, path_lc) in zip(
-                        self.data_all, self._search_keys
-                    )
-                    if query in label_lc or query in path_lc
-                ]
-            else:
-                filtered_data = list(self.data_all)
-            self.data[:] = filtered_data
-            self.tableView.tableModel.sendSignalLayoutChanged()
-        except Exception as e:
-            self.statusBar().showMessage(str(e))
-            print("Error filtering data", e)
 
     def createMenus(self):
         self.setMenuBar(QtWidgets.QMenuBar())
@@ -590,51 +671,57 @@ class MainWindow(QtWidgets.QMainWindow):
         self.searchBox.textChanged.connect(self.on_search_changed)
         self.toolBar.addWidget(self.searchBox)
 
-    def load_data_launchctl(self, domain_id=0):
+    def _start_load(self, domain_id):
+        """Kick off an asynchronous domain load on a background QThread.
+
+        Disables the domain selector + refresh button and shows an
+        indeterminate progress bar in the status bar while the worker
+        runs, then re-enables them from the finished slot. A previous
+        in-flight loader (if any) is allowed to finish and is replaced; in
+        practice the UI controls that can trigger a second load are
+        disabled while one is running."""
+        self.domain_id = domain_id
         target = self.domain_target(domain_id)
 
-        listing = self.exec(["launchctl", "print", target])
-        match = RE_SERVICES_BLOCK.search(listing)
-        if not match:
-            self.jobs.clear()
-            return []
+        self._set_loading(True)
 
-        # dict.fromkeys preserves order while de-duplicating labels (cheap
-        # insurance against launchctl listing the same label twice).
-        labels = list(
-            dict.fromkeys(
-                line.split("\t")[-1].strip() for line in match.group(1).splitlines()
-            )
-        )
-        labels = [label for label in labels if label]
+        self._loader = JobLoaderThread(target, self)
+        self._loader.finished_jobs.connect(self._on_jobs_loaded)
+        self._loader.error.connect(self._on_load_error)
+        self._loader.finished.connect(self._loader.deleteLater)
+        self._loader.start()
 
-        self.jobs.clear()
-        data = []
+    def _set_loading(self, loading):
+        if self._progress is None:
+            self._progress = QtWidgets.QProgressBar()
+            self._progress.setRange(0, 0)
+            self._progress.setMaximumWidth(180)
+            self._progress.setTextVisible(False)
+            self.statusBar().addPermanentWidget(self._progress)
+        self._progress.setVisible(loading)
+        self.comboBoxDomain.setEnabled(not loading)
+        self.actionRefresh.setEnabled(not loading)
+        self.searchBox.setEnabled(not loading)
 
-        # The bulk listing above gives us labels but not each job's plist
-        # path/state, so we still need one "launchctl print <label>" call per
-        # job - but those calls are independent and I/O-bound, so running
-        # them concurrently turns an O(n) sequence of process spawns into a
-        # few batches of MAX_WORKERS, which is the difference between
-        # "instant" and "minutes" once a domain has thousands of jobs.
-        # run_launchctl (unlike self.exec) never touches the GUI, so it's
-        # safe to call from these worker threads; executor.map keeps results
-        # in label order even though completion order may vary.
-        commands = [["launchctl", "print", f"{target}/{label}"] for label in labels]
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            for label, (details, _err) in zip(
-                labels, pool.map(run_launchctl, commands)
-            ):
-                self.jobs[label] = details
-                path_match = RE_PATH.search(details)
-                path = path_match.group(1) if path_match else None
-                if path and path.startswith("/"):
-                    state_match = RE_STATE.search(details)
-                    data.append(
-                        [label, path, state_match.group(1) if state_match else ""]
-                    )
+    def _on_jobs_loaded(self, data, jobs):
+        self.jobs = jobs
+        self.tableView.tableModel.set_jobs(data)
+        self.tableView.resizeColumnsToContents()
+        self.statusBar().showMessage(f"Total jobs: {len(data)}")
+        self._set_loading(False)
+        # The worker is about to be deleteLater'd via its finished signal,
+        # so drop our reference to avoid touching a deleted C++ object.
+        self._loader = None
+        # Re-apply the current search so a load during an active filter
+        # keeps the view filtered.
+        if self.searchBox.text():
+            self.tableView.proxyModel.setFilterFixedString(self.searchBox.text())
 
-        return data
+    def _on_load_error(self, message):
+        self.statusBar().showMessage(f"Error loading domain: {message}")
+        print("Error loading domain", message)
+        self._set_loading(False)
+        self._loader = None
 
     def createDockWindows(self):
         self.topDock = QtWidgets.QDockWidget(self)
@@ -649,7 +736,7 @@ class MainWindow(QtWidgets.QMainWindow):
             | QtCore.Qt.DockWidgetArea.BottomDockWidgetArea
         )
 
-        self.tableView = CustomTableView(self.data)
+        self.tableView = CustomTableView([])
         self.tableView.addAction(self.actionOpenFile)
         self.tableView.addAction(self.actionStart)
         self.tableView.addAction(self.actionStop)
@@ -686,31 +773,29 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.bottomDock
         )
 
-    def clearLayout(self, layout):
-        while layout.count():
-            child = layout.takeAt(0)
-            if child.widget() is not None:
-                child.widget().deleteLater()
-            elif child.layout() is not None:
-                self.clearLayout(child.layout())
-
     def onListItemDoubleClick(self, qModelIndex):
-        self.on_open_linked_file(row_index=qModelIndex.row())
+        # qModelIndex is a proxy-model index; map it back to the source.
+        source_index = self.tableView.proxyModel.mapToSource(qModelIndex)
+        self.on_open_linked_file(source_index=source_index)
 
     def onListItemSelect(self, selected):
         """An item in the table has been clicked/selected.
 
-        :param selected: QItemSelection of newly-selected cells. Can be empty
-            (e.g. a model reset from search/refresh clears the selection
-            without selecting anything new), so that case must be handled
-            instead of unconditionally indexing into it.
+        :param selected: QItemSelection (in proxy-model coordinates) of
+            newly-selected cells. Can be empty (e.g. a model reset from
+            search/refresh clears the selection without selecting anything
+            new), so that case must be handled instead of unconditionally
+            indexing into it.
         """
         if selected.isEmpty():
             return
 
-        rowIndex = selected.first().top()
-        row_data = self.data[rowIndex]
-        job_details = self.jobs.get(row_data[0])
+        # topLeft() is a QModelIndex in the proxy model's coordinate space
+        # (the view's model is the proxy); top() would only give an int.
+        proxy_index = selected.first().topLeft()
+        source_index = self.tableView.proxyModel.mapToSource(proxy_index)
+        row = self.tableView.tableModel.arraydata[source_index.row()]
+        job_details = self.jobs.get(row[0])
         self.textEdit.setHtml(
             f"""
 <pre>
@@ -719,25 +804,29 @@ class MainWindow(QtWidgets.QMainWindow):
 """
         )
 
-        self.statusBar().showMessage(row_data[1])
+        self.statusBar().showMessage(row[1])
 
-    def on_open_linked_file(self, row_index=None):
-        if row_index is None:
+    def on_open_linked_file(self, source_index=None):
+        # Accept a QModelIndex (source) directly when invoked from a
+        # double-click; otherwise resolve the current selection, mapping
+        # the proxy index back to the source model. QAction.triggered
+        # passes a bool, so the toolbar entry is wired through a lambda to
+        # avoid that bool being misread as an index.
+        if source_index is None or isinstance(source_index, bool):
             selected_indexes = self.tableView.selectionModel().selectedRows()
-
-            if len(selected_indexes):
-                row_index = selected_indexes[0].row()
-            else:
+            if not selected_indexes:
                 show_gui_error("No job selected", "Please select a job first!")
                 return
-        plist_path = self.data[row_index][1]
+            source_index = self.tableView.proxyModel.mapToSource(selected_indexes[0])
+        row = self.tableView.tableModel.arraydata[source_index.row()]
+        plist_path = row[1]
 
         if plist_path and Path(plist_path).exists():
             self.start_file(plist_path)
         else:
             show_gui_error(
                 "",
-                f"There is no associated plist file for job {self.data[row_index][0]} "
+                f"There is no associated plist file for job {row[0]} "
                 f"\nor invalid path [{plist_path}]",
             )
 
@@ -791,6 +880,11 @@ class MainWindow(QtWidgets.QMainWindow):
         settings.sync()
 
     def closeEvent(self, event):
+        # Let an in-flight loader settle so it doesn't emit into a
+        # half-destroyed window; the worker has no GUI interaction of its
+        # own so this is at most a short wait.
+        if self._loader is not None and self._loader.isRunning():
+            self._loader.wait(2000)
         self.write_settings()
 
 
@@ -798,7 +892,20 @@ class CustomTableView(QtWidgets.QTableView):
     def __init__(self, table_data, *args):
         QtWidgets.QTableView.__init__(self, *args)
         self.tableModel = CustomTableModel(table_data, self)
-        self.setModel(self.tableModel)
+
+        # The proxy sits between the view and the source model and owns
+        # all filtering + sorting, so the source's row order is never
+        # mutated (which previously broke the search cache) and selection
+        # indexes map cleanly through mapToSource/mapFromSource.
+        self.proxyModel = JobFilterProxyModel(self)
+        self.proxyModel.setSourceModel(self.tableModel)
+        self.proxyModel.setFilterCaseSensitivity(
+            QtCore.Qt.CaseSensitivity.CaseInsensitive
+        )
+        self.proxyModel.setSortCaseSensitivity(
+            QtCore.Qt.CaseSensitivity.CaseInsensitive
+        )
+        self.setModel(self.proxyModel)
         self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.ActionsContextMenu)
 
     def setAppWindowHandle(self, mainWindowHandle):
@@ -822,6 +929,7 @@ class CustomTableView(QtWidgets.QTableView):
 
         self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent)
         self.setWordWrap(True)
+        # Sorting is handled by the proxy model, not the source.
         self.setSortingEnabled(True)
         self.setSizeAdjustPolicy(
             QtWidgets.QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents
@@ -835,7 +943,7 @@ class CustomTableModel(QtCore.QAbstractTableModel):
 
     def __init__(self, datain, parent=None, *args):
         QtCore.QAbstractTableModel.__init__(self, parent, *args)
-        self.arraydata = datain
+        self.arraydata = datain if datain is not None else []
 
     def rowCount(self, parent):
         return len(self.arraydata)
@@ -851,17 +959,12 @@ class CustomTableModel(QtCore.QAbstractTableModel):
         except IndexError:
             return None
 
-    def setData(self, index, value, role=QtCore.Qt.ItemDataRole.EditRole):
-        if role == QtCore.Qt.ItemDataRole.EditRole:
-            self.arraydata[index.row()] = value
-            self.dataChanged.emit(index, index)
-            return True
-        return False
-
-    def sendSignalLayoutAboutToBeChanged(self):
+    def set_jobs(self, data):
+        """Replace the canonical dataset in one guarded reset. The proxy
+        model is wired to this source model, so a reset here automatically
+        refreshes the filtered/sorted view too."""
         self.beginResetModel()
-
-    def sendSignalLayoutChanged(self):
+        self.arraydata = list(data)
         self.endResetModel()
 
     def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
@@ -871,25 +974,6 @@ class CustomTableModel(QtCore.QAbstractTableModel):
         ):
             return self.header_labels[section]
         return QtCore.QAbstractTableModel.headerData(self, section, orientation, role)
-
-    def insertRows(self, position, item, parent=QtCore.QModelIndex()):
-        self.beginInsertRows(
-            QtCore.QModelIndex(), len(self.arraydata), len(self.arraydata) + 1
-        )
-        self.arraydata.append(item)  # Item must be an array
-        self.endInsertRows()
-        return True
-
-    def sort(self, ncol, order):
-        """
-        Sort table by given column number.
-        """
-        self.sendSignalLayoutAboutToBeChanged()
-        self.arraydata.sort(
-            key=operator.itemgetter(ncol),
-            reverse=(order == QtCore.Qt.SortOrder.DescendingOrder),
-        )
-        self.sendSignalLayoutChanged()
 
     def flags(self, index):
         return QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable
